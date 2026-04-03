@@ -2,6 +2,10 @@
 ### Bangladesh's AI-Powered Fact-Checking & Misinformation Detection Platform
 > বাংলাদেশের তথ্য যাচাই ও ভুল তথ্য শনাক্তকরণ প্ল্যাটফর্ম
 
+TRY THIS -- 
+
+https://banglatruth-kzbdfhieaucrsods96nikb.streamlit.app/
+
 ![Python](https://img.shields.io/badge/Python-3.13-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.104-green)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.28-red)
