@@ -1,4 +1,14 @@
 streamlit
-anthropic
+fastapi
+uvicorn
+groq
 langdetect
 python-dotenv
+ddgs
+requests
+newspaper3k
+lxml_html_clean
+pandas
+supabase
+pydantic
+anthropic
