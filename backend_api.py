@@ -19,6 +19,17 @@ from ddgs import DDGS
 from newspaper import Article
 import logging
 
+load_dotenv()
+
+from supabase import create_client, Client
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+from ddgs import DDGS
+from newspaper import Article
+import logging
+
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -67,7 +78,18 @@ class AnalyzeArticleRequest(BaseModel):
 # ============================================================================
 # UTILITY FUNCTIONS
 # ============================================================================
-
+def save_to_supabase(username, claim, verdict, confidence, explanation):
+    try:
+        supabase.table("fact_checks").insert({
+            "username": username,
+            "claim": claim[:500],
+            "verdict": verdict,
+            "confidence": confidence,
+            "explanation": explanation[:1000]
+        }).execute()
+        logger.info(f"Saved to Supabase for user: {username}")
+    except Exception as e:
+        logger.warning(f"Supabase save failed: {e}")
 def clean_json(raw_text):
     """
     Tries to find and clean JSON from AI response.
@@ -213,7 +235,7 @@ def search_image(query):
     try:
         time.sleep(1)  # Rate limiting
         clean_query = re.sub(r'[^\w\s]', '', query)
-        short_query = " ".join(clean_query.split()[:5])
+        short_query = " ".join(clean_query.split()[:8])
 
         for attempt in range(3):
             try:
@@ -376,7 +398,13 @@ async def fact_check(request: FactCheckRequest):
         sources = get_source_links(f"{claim[:100]}", request.engine, limit=3)
 
         logger.info(f"Final verdict: {final_verdict} (confidence: {avg_confidence}%)")
-
+        save_to_supabase(
+            username="anonymous",
+            claim=claim,
+            verdict=final_verdict,
+            confidence=avg_confidence,
+            explanation=individual_results[0].get("explanation", "")
+        )
         return {
             "final_verdict": final_verdict,
             "avg_confidence": avg_confidence,
@@ -484,7 +512,58 @@ async def get_images(q: str):
 # ============================================================================
 # STARTUP
 # ============================================================================
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
 
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+@app.post("/auth/register")
+async def register(request: RegisterRequest):
+    try:
+        response = supabase.auth.sign_up({
+            "email": request.email,
+            "password": request.password
+        })
+        if response.user:
+            return {
+                "success": True,
+                "user_id": response.user.id,
+                "email": response.user.email
+            }
+        else:
+            raise HTTPException(status_code=400, detail="Registration failed")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/auth/login")
+async def login(request: LoginRequest):
+    try:
+        response = supabase.auth.sign_in_with_password({
+            "email": request.email,
+            "password": request.password
+        })
+        if response.user:
+            return {
+                "success": True,
+                "user_id": response.user.id,
+                "email": response.user.email,
+                "access_token": response.session.access_token
+            }
+        else:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+@app.post("/auth/logout")
+async def logout():
+    try:
+        supabase.auth.sign_out()
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 if __name__ == "__main__":
     import uvicorn
 

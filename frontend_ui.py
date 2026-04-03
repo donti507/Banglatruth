@@ -27,7 +27,6 @@ st.set_page_config(
 
 st.markdown("""
     <style>
-    /* Main Colors */
     :root {
         --primary: #007bff;
         --success: #28a745;
@@ -36,12 +35,10 @@ st.markdown("""
         --info: #17a2b8;
     }
 
-    /* Verdict Boxes */
     .verdict-box {
         padding: 40px;
         border-radius: 15px;
         border-left: 8px solid;
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
         box-shadow: 0 4px 15px rgba(0,0,0,0.1);
         margin: 20px 0;
     }
@@ -51,7 +48,6 @@ st.markdown("""
     .verdict-misleading { border-left-color: #ffc107; background: linear-gradient(135deg, #fff3cd 0%, #ffc107 100%); }
     .verdict-contested { border-left-color: #fd7e14; background: linear-gradient(135deg, #ffe5cc 0%, #fd7e14 100%); }
 
-    /* Button Styling */
     .stButton>button {
         width: 100%;
         padding: 12px 24px;
@@ -68,7 +64,6 @@ st.markdown("""
         box-shadow: 0 6px 15px rgba(0,0,0,0.3);
     }
 
-    /* Metric Cards */
     .metric-card {
         background: white;
         padding: 20px;
@@ -77,12 +72,10 @@ st.markdown("""
         text-align: center;
     }
 
-    /* Evidence Section */
     .evidence-for { border-left: 4px solid #28a745; padding-left: 15px; }
     .evidence-against { border-left: 4px solid #dc3545; padding-left: 15px; }
     .evidence-neutral { border-left: 4px solid #17a2b8; padding-left: 15px; }
 
-    /* Sidebar */
     .sidebar-content {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
@@ -91,12 +84,10 @@ st.markdown("""
         margin-bottom: 20px;
     }
 
-    /* History Table */
     .history-row:hover {
         background-color: #f5f5f5;
     }
 
-    /* Loading spinner text */
     .loading-text {
         font-size: 18px;
         font-weight: 600;
@@ -118,22 +109,32 @@ if "api_url" not in st.session_state:
 if "current_result" not in st.session_state:
     st.session_state.current_result = None
 
+if "current_claim" not in st.session_state:
+    st.session_state.current_claim = ""
+
+if "reg_done" not in st.session_state:
+    st.session_state.reg_done = False
+
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+if "user_email" not in st.session_state:
+    st.session_state.user_email = None
+
+if "access_token" not in st.session_state:
+    st.session_state.access_token = None
 
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
 
 def get_api_base():
-    """Get the API base URL (configurable)."""
     return st.session_state.api_url
 
-
 def call_backend(endpoint, payload):
-    """Make a request to the backend API."""
     try:
         url = f"{get_api_base()}{endpoint}"
         response = requests.post(url, json=payload, timeout=60)
-
         if response.status_code == 200:
             return response.json()
         else:
@@ -150,9 +151,7 @@ def call_backend(endpoint, payload):
         st.error(f"❌ Error: {str(e)}")
         return None
 
-
 def get_verdict_color(verdict):
-    """Get color based on verdict."""
     colors = {
         "TRUE": "green",
         "FALSE": "red",
@@ -163,19 +162,16 @@ def get_verdict_color(verdict):
     }
     return colors.get(verdict, "gray")
 
-
 def get_verdict_emoji(verdict):
-    """Get emoji for verdict."""
     emojis = {
         "TRUE": "✅",
         "FALSE": "❌",
         "MISLEADING": "⚠️",
         "CONTESTED": "⚖️",
         "UNVERIFIED": "❓",
-        "ERROR": "⚠️"
+        "ERROR": "🔴"
     }
     return emojis.get(verdict, "❓")
-
 
 # ============================================================================
 # SIDEBAR
@@ -191,16 +187,25 @@ st.sidebar.markdown("""
 
 st.sidebar.divider()
 
-# Navigation
 page = st.sidebar.radio(
-    "📋 Navigation",
+    "🧭 Navigation",
     ["🔍 Fact Check", "📊 Dashboard", "⚙️ Settings"],
     label_visibility="visible"
 )
-
 st.sidebar.divider()
 
-# API Status
+# User info + logout
+if st.session_state.user_email:
+    st.sidebar.markdown(f"👤 **{st.session_state.user_email}**")
+    if st.sidebar.button("Logout", use_container_width=True):
+        st.session_state.user = None
+        st.session_state.user_email = None
+        st.session_state.access_token = None
+        st.session_state.current_result = None
+        st.session_state.history = []
+        st.rerun()
+st.sidebar.divider()
+
 st.sidebar.markdown("### 🔌 Connection Status")
 try:
     health_response = requests.get(f"{get_api_base()}/health", timeout=5)
@@ -216,14 +221,86 @@ except:
 # ============================================================================
 # PAGE: FACT CHECK
 # ============================================================================
+# ============================================================================
+# AUTH GATE — show login if not logged in
+# ============================================================================
 
+def show_login_page():
+    st.title("🔍 BanglaTruth")
+    st.markdown("Bangladesh's AI-powered fact-checking platform | বাংলাদেশের তথ্য যাচাই প্ল্যাটফর্ম")
+    st.divider()
+
+    default_tab = 0 if not st.session_state.get("reg_done") else 0
+    tab1, tab2 = st.tabs(["🔐 Login", "📝 Register"])
+
+    with tab1:
+        st.markdown("### Welcome back")
+        email = st.text_input("Email", key="login_email", placeholder="you@example.com")
+        password = st.text_input("Password", type="password", key="login_password", placeholder="••••••••")
+
+        if st.button("Login →", key="login_btn", use_container_width=True):
+            if not email.strip() or not password.strip():
+                st.warning("Please enter email and password.")
+            else:
+                with st.spinner("Logging in..."):
+                    try:
+                        response = requests.post(
+                            f"{get_api_base()}/auth/login",
+                            json={"email": email, "password": password},
+                            timeout=10
+                        )
+                        if response.status_code == 200:
+                            data = response.json()
+                            st.session_state.user = data["user_id"]
+                            st.session_state.user_email = data["email"]
+                            st.session_state.access_token = data["access_token"]
+                            st.success("✅ Logged in successfully!")
+                            st.rerun()
+                        else:
+                            st.error("❌ Invalid email or password.")
+                    except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
+
+    with tab2:
+        st.markdown("### Create an account")
+        reg_email = st.text_input("Email", key="reg_email", placeholder="you@example.com")
+        reg_password = st.text_input("Password", type="password", key="reg_password", placeholder="Min 6 characters")
+        reg_password2 = st.text_input("Confirm Password", type="password", key="reg_password2", placeholder="Repeat password")
+
+        if st.button("Register →", key="reg_btn", use_container_width=True):
+            if not reg_email.strip() or not reg_password.strip():
+                st.warning("Please fill in all fields.")
+            elif reg_password != reg_password2:
+                st.error("❌ Passwords do not match.")
+            elif len(reg_password) < 6:
+                st.error("❌ Password must be at least 6 characters.")
+            else:
+                with st.spinner("Creating account..."):
+                    try:
+                        response = requests.post(
+                            f"{get_api_base()}/auth/register",
+                            json={"email": reg_email, "password": reg_password},
+                            timeout=10
+                        )
+                        if response.status_code == 200:
+                            st.success(" Account created! Check your email then login.")
+                            st.session_state.reg_done = True
+                            st.rerun()
+                        else:
+                            detail = response.json().get("detail", "Registration failed.")
+                            st.error(f"❌ {detail}")
+                    except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
+
+if st.session_state.user is None:
+    show_login_page()
+    st.stop()
 if page == "🔍 Fact Check":
 
     st.title("🔍 AI Truth Jury")
     st.markdown("Enter a claim and let multiple AI models vote on its veracity.")
     st.divider()
 
-    # Input Section
     col1, col2 = st.columns([3, 1])
 
     with col1:
@@ -241,7 +318,7 @@ if page == "🔍 Fact Check":
             label_visibility="collapsed"
         )
 
-        if st.button("🔍 Extract Claims", use_container_width=True):
+        if st.button("🔗 Extract Claims", use_container_width=True):
             if not url_input.strip():
                 st.warning("Please enter a URL")
             else:
@@ -275,7 +352,6 @@ if page == "🔍 Fact Check":
 
     st.divider()
 
-    # Advanced Settings
     with st.expander("⚙️ Advanced Settings", expanded=True):
         col1, col2, col3, col4 = st.columns(4)
 
@@ -316,17 +392,17 @@ if page == "🔍 Fact Check":
 
     st.divider()
 
-    # Main Fact-Check Button
     if st.button(
-            f"{'⚡ Quick Check' if not deep_mode else '🔬 Deep Analysis'} | {'📰' if reporter_mode else ''}",
+            f"{'⚡ Quick Check' if not deep_mode else '🔬 Deep Analysis'} {'📰' if reporter_mode else ''}",
             use_container_width=True,
             type="primary"
     ):
         if not claim_text.strip():
             st.error("❌ Please enter a claim first")
         else:
-            with st.spinner(f"{'🔬' if deep_mode else '⚡'} Processing claim through jury..."):
+            st.session_state.current_claim = claim_text
 
+            with st.spinner(f"{'🔬' if deep_mode else '⚡'} Processing claim through jury..."):
                 payload = {
                     "claim": claim_text,
                     "deep": deep_mode,
@@ -350,13 +426,37 @@ if page == "🔍 Fact Check":
     # Display Results
     if st.session_state.current_result:
         result = st.session_state.current_result
+        claim_text_display = st.session_state.current_claim
 
         st.divider()
+
+        # related images — shown first
+        with st.spinner("🖼️ Finding related images..."):
+            try:
+                img_response = requests.get(
+                    f"{get_api_base()}/images",
+                    params={"q": claim_text_display[:80]},
+                    timeout=10
+                )
+                if img_response.status_code == 200:
+                    images = img_response.json().get("images", [])
+                    if images:
+                        st.markdown("### 🖼️ Related Images")
+                        img_cols = st.columns(3)
+                        for idx, img in enumerate(images[:3]):
+                            with img_cols[idx]:
+                                st.image(img, width=200)
+                        st.divider()
+                    else:
+                        st.caption("🖼️ No relevant images found for this claim.")
+                        st.divider()
+            except Exception:
+                pass
+
         st.markdown("## 📋 Jury Verdict")
 
         verdict = result["final_verdict"]
         confidence = result["avg_confidence"]
-        color = get_verdict_color(verdict)
         emoji = get_verdict_emoji(verdict)
 
         verdict_class = f"verdict-{verdict.lower()}"
@@ -372,7 +472,6 @@ if page == "🔍 Fact Check":
             </div>
         """, unsafe_allow_html=True)
 
-        # Confidence Meter
         st.progress(min(confidence / 100, 1.0))
 
         st.divider()
@@ -391,19 +490,15 @@ if page == "🔍 Fact Check":
 
                 st.markdown(f"### {model_name}")
 
-                # Verdict badge
                 m_emoji = get_verdict_emoji(v)
                 st.markdown(f"**{m_emoji} {v}**")
 
-                # Confidence bar
                 st.progress(min(int(conf) / 100, 1.0))
                 st.caption(f"Confidence: {conf}%")
 
-                # Explanation
                 with st.expander("📝 Full Explanation"):
                     st.write(explanation)
 
-                # Deep analysis details
                 if deep_mode:
                     if model_result.get("for_arguments"):
                         st.markdown("**✅ Arguments For:**")
@@ -412,13 +507,11 @@ if page == "🔍 Fact Check":
                         st.markdown("**❌ Arguments Against:**")
                         st.write(model_result["against_arguments"][:200])
 
-                # Reporter mode details
                 if reporter_mode:
                     if model_result.get("follow_up_questions"):
                         st.markdown("**❓ Follow-up Questions:**")
                         for q in model_result.get("follow_up_questions", [])[:2]:
                             st.markdown(f"- {q}")
-
                     if model_result.get("red_flags"):
                         st.markdown("**🚩 Red Flags:**")
                         st.write(model_result["red_flags"][:150])
@@ -427,7 +520,7 @@ if page == "🔍 Fact Check":
 
         # Source Links
         if result.get("source_links"):
-            st.markdown("## 📚 Suggested Sources")
+            st.markdown("## 🔗 Suggested Sources")
             for link in result["source_links"][:3]:
                 st.markdown(f"- [{link[:60]}...]({link})")
 
@@ -442,35 +535,29 @@ elif page == "📊 Dashboard":
     st.divider()
 
     if not st.session_state.history:
-        st.info("🚀 No claims checked yet. Start fact-checking to see results here!")
+        st.info("📭 No claims checked yet. Start fact-checking to see results here!")
     else:
-        # Statistics
         df = pd.DataFrame(st.session_state.history)
 
         col1, col2, col3, col4, col5 = st.columns(5)
 
         with col1:
             st.metric("📊 Total Checked", len(df))
-
         with col2:
             true_count = len(df[df["verdict"] == "TRUE"])
             st.metric("✅ True", true_count)
-
         with col3:
             false_count = len(df[df["verdict"] == "FALSE"])
             st.metric("❌ False", false_count)
-
         with col4:
             misleading_count = len(df[df["verdict"].isin(["MISLEADING", "CONTESTED"])])
             st.metric("⚠️ Misleading", misleading_count)
-
         with col5:
             avg_conf = df["confidence"].mean()
-            st.metric("📈 Avg Confidence", f"{int(avg_conf)}%")
+            st.metric("🎯 Avg Confidence", f"{int(avg_conf)}%")
 
         st.divider()
 
-        # Filter
         filter_verdict = st.selectbox(
             "Filter by verdict",
             ["All", "TRUE", "FALSE", "MISLEADING", "CONTESTED", "UNVERIFIED"]
@@ -480,16 +567,9 @@ elif page == "📊 Dashboard":
         if filter_verdict != "All":
             filtered_df = df[df["verdict"] == filter_verdict]
 
-        # Display table
         st.markdown("### 📋 Fact-Check History")
 
-        display_df = filtered_df[[
-            "timestamp",
-            "claim",
-            "verdict",
-            "confidence"
-        ]].copy()
-
+        display_df = filtered_df[["timestamp", "claim", "verdict", "confidence"]].copy()
         display_df.columns = ["Time", "Claim", "Verdict", "Confidence (%)"]
 
         st.dataframe(
@@ -507,7 +587,6 @@ elif page == "📊 Dashboard":
 
         st.divider()
 
-        # Charts
         col1, col2 = st.columns(2)
 
         with col1:
@@ -532,7 +611,7 @@ elif page == "⚙️ Settings":
     st.markdown("Configure BanglaTruth for your environment")
     st.divider()
 
-    st.markdown("### 🔌 Backend Configuration")
+    st.markdown("### 🔗 Backend Configuration")
 
     new_api_url = st.text_input(
         "Backend API URL",
@@ -546,19 +625,17 @@ elif page == "⚙️ Settings":
 
     st.divider()
 
-    st.markdown("### 📋 Environment Variables")
+    st.markdown("### 🔑 Environment Variables")
 
     st.info("""
-    Create a `.env` file in your backend directory with:
-
-    ```
+    Create a `.env` file in your project directory with:
+```
     GROQ_API_KEY=your_groq_api_key
     GOOGLE_API_KEY=your_google_api_key (optional)
     GOOGLE_CX=your_google_cx (optional)
     PORT=8000
-    ```
-
-    **Note:** DuckDuckGo doesn't require an API key and works as a fallback.
+    BACKEND_URL=http://localhost:8000
+```
     """)
 
     st.divider()
@@ -570,24 +647,22 @@ elif page == "⚙️ Settings":
     with col1:
         st.markdown("**Backend Hosting:**")
         st.markdown("""
-        - 🟢 **Local**: `python backend_api.py`
-        - 🟢 **Render**: https://render.com (free tier)
-        - 🟢 **Railway**: https://railway.app (free tier)
-        - 🟢 **Fly.io**: https://fly.io (free tier)
+        - 💻 **Local**: `python backend_api.py`
+        - 🌐 **Render**: https://render.com (free tier)
+        - 🚂 **Railway**: https://railway.app (free tier)
         """)
 
     with col2:
         st.markdown("**Frontend Hosting:**")
         st.markdown("""
-        - 🟢 **Streamlit Cloud**: https://streamlit.io/cloud
-        - 🔵 Connect GitHub repo
-        - 🔵 Auto-deploy on push
-        - 📝 Add `.streamlit/secrets.toml` for prod API URL
+        - 🎈 **Streamlit Cloud**: https://streamlit.io/cloud
+        - 📦 Connect GitHub repo
+        - ⚡ Auto-deploy on push
         """)
 
     st.divider()
 
-    st.markdown("### 📚 Requirements")
+    st.markdown("### 📦 Requirements")
 
     st.code("""
 fastapi==0.104.1
@@ -597,15 +672,15 @@ groq==0.4.2
 requests==2.31.0
 pydantic==2.5.0
 streamlit==1.28.0
-duckduckgo-search==3.9.10
-newspaper3k==0.2.8
+ddgs
+newspaper3k
 langdetect==1.0.9
 pandas==2.1.3
     """, language="text")
 
     st.divider()
 
-    st.markdown("### 🧹 Session Management")
+    st.markdown("### 🗑️ Session Management")
 
     if st.button("🗑️ Clear History", use_container_width=True):
         st.session_state.history = []
@@ -623,7 +698,5 @@ pandas==2.1.3
     - **Models**: Llama 3.3, Llama 3.1 (via Groq)
     - **Languages**: English, Bangla, and more
     - **Search**: DuckDuckGo (default), Google Custom Search (optional)
-    - **Open Source**: Built for accuracy and transparency
-
-    Need help? Check the documentation or file an issue.
+    - **Architecture**: FastAPI backend + Streamlit frontend
     """)
